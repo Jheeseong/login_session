@@ -93,3 +93,116 @@
 ![image](https://user-images.githubusercontent.com/96407257/162619419-ba99fb0b-dc55-4bc5-92b9-0f1f961b5086.png)
 - 클라이언트는 요청 시 항상 mySessionId 쿠키를 전달
 - 서버에서는 클라이언트가 전달한 mySessionId 쿠키 정보로 세션 저장소를 조회해서 로그인 시 보관한 세션 정보를 사용
+
+# 로그인 처리하기 - 세션 직접 만들기
+- 세션 생성
+  - sessionId 생성(임의의 추정 불가능한 랜덤 값)
+  - 세션 저장소에 sessionId와 보관할 값 저장
+  - sessionId로 응답 쿠키를 생성해서 클라이언트에 전달
+- 세션 조회
+  - 클라이언트가 요청한 sessionId 쿠키의 값으로, 세션 저장소에 보관한 값 조회
+- 세션 만료
+  - 클라이언트가 요청한 sessionId 쿠키의 값으로, 세션 저장소에 보관한 sessionId와 값 제거
+
+**SessionManager - 세션 관리**
+    
+    @Component
+    public class SessionManager {
+
+        public static final String SESSION_COOKIE_NAME = "mySessionId";
+        private Map<String, Object> sessionStore = new ConcurrentHashMap<>();
+
+        //세션 생성
+        public void createSession(Object value, HttpServletResponse response) {
+
+            String sessionId = UUID.randomUUID().toString();
+            sessionStore.put(sessionId, value);
+
+            Cookie mySessionCookie = new Cookie(SESSION_COOKIE_NAME, sessionId);
+            response.addCookie(mySessionCookie);
+        }
+
+        //세션 조회
+        public Object getSession(HttpServletRequest request) {
+            Cookie sessionCookie = findCookie(request, SESSION_COOKIE_NAME);
+            if (sessionCookie == null) {
+                return null;
+            }
+            return sessionStore.get(sessionCookie.getValue());
+        }
+
+        //세션 만료
+        public void expire(HttpServletRequest request) {
+            Cookie sessionCookie = findCookie(request, SESSION_COOKIE_NAME);
+            if (sessionCookie != null) {
+                sessionStore.remove(sessionCookie.getValue());
+            }
+        }
+
+        private Cookie findCookie(HttpServletRequest request, String cookieName) {
+            if (request.getCookies() == null) {
+                return null;
+            }
+            return Arrays.stream(request.getCookies())
+                    .filter(cookie -> cookie.getName().equals(cookieName))
+                    .findAny()
+                    .orElse(null);
+        }
+    }
+    
+- @Component : 스프링 빈으로 자동 등록
+- ConcurrentHashMap : HashMap은 동시 요청에 안전하지 X, 동시 요청에 안전한 ConcurrentHashMap 사용
+
+# 로그인 처리하기 - 직접 만든 세션 적용
+**LoginController - loginV2()**
+
+    @PostMapping("/login")
+    public String loginV2(@Validated @ModelAttribute LoginForm form, BindingResult bindingResult,
+                        HttpServletResponse response) {
+        if (bindingResult.hasErrors()) {
+            return "login/loginForm";
+        }
+
+        Member loginMember = loginService.login(form.getLoginId(), form.getPassword());
+        log.info("login? {}", loginMember);
+
+        if (loginMember == null) {
+            bindingResult.reject("loginFail", "아이디 또는 비밀번호가 맞지 않습니다.");
+            return "login/loginForm";
+        }
+
+        //로그인 성공 처리
+        sessionManager.createSession(loginMember, response);
+        return "redirect:/";
+    }
+    
+- private final SessionManager sessionManager; 주입
+- sessionManager.createSession(loginMember, response); : 로그인 성공 시 세션을 등록, 세션에 loginMember 를 저장해두고, 쿠키도 함께 발행
+
+**LoginController - logoutV2()**
+
+    @PostMapping("/logout")
+    public String logoutV2(HttpServletRequest request) {
+        sessionManager.expire(request);
+        return "redirect:/";
+    }
+    
+- 로그 아웃 시 해당 세션의 정보를 제거
+
+**HomeController - homeLoginV2()**
+
+    @GetMapping("/")
+    public String homeLoginV2(HttpServletRequest request, Model model) {
+
+        Member member = (Member) sessionManager.getSession(request);
+        if (member == null) {
+            return "home";
+        }
+
+        model.addAttribute("member", member);
+        return "loginHome";
+    }
+    
+- private fianl SessionManager sessionManager; 주입
+- 세션 관리자에서 저장된 회원 정보를 조회
+- 회원 정보가 없을 시, 쿠키나 세션이 없는 것으로 로그인 되지 않는 것으로 처리
