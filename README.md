@@ -206,3 +206,84 @@
 - private fianl SessionManager sessionManager; 주입
 - 세션 관리자에서 저장된 회원 정보를 조회
 - 회원 정보가 없을 시, 쿠키나 세션이 없는 것으로 로그인 되지 않는 것으로 처리
+
+# 로그인 처리하기 - 서블릿 HTTP 세션1
+**HttpSession**
+- 서블릿이 제공하는 HttpSession은 기존 직접 만든 SessionManager와 같은 방식으로 동작
+- JSESSIONID라는 쿠키를 생성하고 랜덤 값을 생성
+- Cookie: JSESSIONID = 5B71...... 생성
+
+**SessionConst**
+
+    public interface SessionConst {
+        String LOGIN_MEMBER = "logMember";
+    }
+    
+- HttpSession에 데이터를 보관하고 조회할 떄, 같은 이름이 중복되어 사용 되지 않도록, 상수 하나를 정의
+
+**LoginController - loginV3()**
+
+    @PostMapping("/login")
+    public String loginV3(@Validated @ModelAttribute LoginForm form, BindingResult bindingResult,
+                          HttpServletRequest request) {
+        if (bindingResult.hasErrors()) {
+            return "login/loginForm";
+        }
+
+        Member loginMember = loginService.login(form.getLoginId(), form.getPassword());
+        log.info("login? {}", loginMember);
+
+        if (loginMember == null) {
+            bindingResult.reject("loginFail", "아이디 또는 비밀번호가 맞지 않습니다.");
+            return "login/loginForm";
+        }
+
+        //로그인 성공 처리
+        HttpSession session = request.getSession();
+
+        session.setAttribute(SessionConst.LOGIN_MEMBER, loginMember);
+
+        return "redirect:/";
+    }
+    
+- 세션 생성 : request.getSession(true) 사용
+  - request.getSession(true) : 세션이 있으면 기존 세션을 반환, 세션이 없으면 새로운 세션을 생성해서 반환
+  - request.getSession(false) : 세션이 있으면 기존 세션을 반환, 세션이 없으면 새로운 세션 생성 X(null 반환)
+- 세션에 로그인 회원 정보 보관 : session.setAttribute(SessionConst.LOGIN_MEMBER, loginMember);
+  - 세션에 데이터를 보관, 하나의 세션에 여러 값 저장 가능
+
+**LoginController - logoutV3()**
+
+    @PostMapping("/logout")
+    public String logoutV3(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
+        return "redirect:/";
+    }
+    
+- session.invalidate() : 세션을 제거
+
+**HomeController - homeLoginV3()**
+
+    @GetMapping("/")
+    public String homeLoginV3(HttpServletRequest request, Model model) {
+
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return "home";
+        }
+
+        Member loginMember = (Member) session.getAttribute(SessionConst.LOGIN_MEMBER);
+        if (loginMember == null) {
+            return "home";
+        }
+
+        model.addAttribute("member", loginMember);
+        return "loginHome";
+
+    }
+    
+- request.getSession(false) : getSession()의 기본 값은 true, 로그인 하지 않을 사용자도 의미없는 세션이 생성, 여기서는 의미없는 세션 생성을 막기위해 false 사용
+- session.getAttribute(SessionConst.LOGIN_MEMBER) : 로그인 시점에 세션에 보관한 회원 객체를 
