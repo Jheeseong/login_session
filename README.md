@@ -286,4 +286,32 @@
     }
     
 - request.getSession(false) : getSession()의 기본 값은 true, 로그인 하지 않을 사용자도 의미없는 세션이 생성, 여기서는 의미없는 세션 생성을 막기위해 false 사용
-- session.getAttribute(SessionConst.LOGIN_MEMBER) : 로그인 시점에 세션에 보관한 회원 객체를 
+- session.getAttribute(SessionConst.LOGIN_MEMBER) : 로그인 시점에 세션에 보관한 회원 객체를 검색
+
+# 로그인 처리하기 - 서블릿 HTTP 세션2
+**@SessionAttribute**
+- 이미 로그인 된 사용자를 찾을 때 사용, 이 기능은 세션 생성 X
+- @SessionAttribute(name = "loginMember", required = false) Member loginMember
+
+**HomeController - homeLoginV4**
+
+    @GetMapping("/")
+    public String homeLoginV4(@SessionAttribute(name = SessionConst.LOGIN_MEMBER, required = false) Member loginMember,
+                              Model model) {
+
+        if (loginMember == null) {
+            return "home";
+        }
+
+        model.addAttribute("member", loginMember);
+        return "loginHome";
+
+    }
+
+- 스프링 에노테이션이 세션을 찾고, 세션에 들어있는 데이터를 찾는 번거로운 과정을 해결
+
+**TrackingModes**
+- 로그인을 처음 시도하면 URL에 Jsessionid를 포함
+- 웹 브라우저가 쿠키를 지원하지 않을 경우 쿠키 대신 URL을 통해서 세션을 유지하는 방법
+- 타임리프 같은 템플릿은 엔진을 통해서 링크를 걸면 Jsessionid를 URL에 자동으로 포함
+- server.servlet.session.tracking-modes=cookie 추가 시 jsessionid 노출 X
